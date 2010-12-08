@@ -40,7 +40,13 @@
 @synthesize builderController;
 
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification {
-	// Insert code here to initialize your application 
+	// Insert code here to initialize your application
+	
+	NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+	NSString *recentURL = [defaults stringForKey:@"recentURL"];
+	if (recentURL && [recentURL length] > 0) {
+		[builderController.webserverDirectoryField setStringValue:recentURL];
+	}
 }
 
 - (IBAction)showDeploymentHelpPanel:(id)sender {

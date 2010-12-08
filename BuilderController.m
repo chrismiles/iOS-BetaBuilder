@@ -162,6 +162,11 @@
 		}
 		[zip release];
 		
+		// Save URL for next time
+		NSUserDefaults *defaults = [NSUserDefaults standardUserDefaults];
+		[defaults setValue:[webserverDirectoryField stringValue] forKey:@"recentURL"];
+		[defaults synchronize];
+
 		//Play Done Sound / Display Alert
 		NSSound *systemSound = [NSSound soundNamed:@"Glass"];
 		[systemSound play];
