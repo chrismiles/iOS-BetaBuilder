@@ -8,7 +8,7 @@
 
 /* 
  iOS BetaBuilder - a tool for simpler iOS betas
- Version 1.0, August 2010
+ Version 1.5, January 2011
  
  Condition of use and distribution:
  
@@ -29,6 +29,8 @@
  3. This notice may not be removed or altered from any source distribution.
  */
 
+#import "NSFileManager+DirectoryLocations.h"
+
 #import "BuilderController.h"
 #import "ZipArchive.h"
 
@@ -43,13 +45,16 @@
 @synthesize mobileProvisionFilePath;
 
 - (IBAction)specifyIPAFile:(id)sender {
+    NSArray *allowedFileTypes = [NSArray arrayWithObjects:@"ipa", @"IPA", nil]; //only allow IPAs
+    
 	NSOpenPanel *openDlg = [NSOpenPanel openPanel];
 	[openDlg setCanChooseFiles:YES];
 	[openDlg setCanChooseDirectories:NO];
 	[openDlg setAllowsMultipleSelection:NO];
+    [openDlg setAllowedFileTypes:allowedFileTypes];
 
-	if ([openDlg runModalForDirectory:nil file:nil] == NSOKButton) {
-		NSArray *files = [openDlg filenames];
+	if ([openDlg runModalForTypes:allowedFileTypes] == NSOKButton) {
+        NSArray *files = [openDlg filenames];
 
 		for (int i = 0; i < [files count]; i++ ) {
 			[self setupFromIPAFile:[files objectAtIndex:i]];
@@ -68,8 +73,14 @@
 	NSURL *ipaDestinationURL = [NSURL fileURLWithPath:[NSString stringWithFormat:@"%@%@", NSTemporaryDirectory(), [[archiveIPAFilenameField stringValue] lastPathComponent]]];
 	[fileManager removeItemAtURL:ipaDestinationURL error:&fileDeleteError];
 	BOOL copiedIPAFile = [fileManager copyItemAtURL:ipaSourceURL toURL:ipaDestinationURL error:&fileCopyError];
-	if (!copiedIPAFile) {
+
+    if (!copiedIPAFile) {
 		NSLog(@"Error Copying IPA File: %@", fileCopyError);
+        NSAlert *theAlert = [NSAlert alertWithError:fileCopyError];
+        NSInteger button = [theAlert runModal];
+        if (button != NSAlertFirstButtonReturn) {
+            //user hit the rightmost button
+        }
 	} else {
 		//Remove Existing Trash in Temp Directory
 		[fileManager removeItemAtPath:[NSTemporaryDirectory() stringByAppendingPathComponent:@"extracted_app"] error:nil];
@@ -92,6 +103,8 @@
 				[bundleVersionField setStringValue:[bundlePlistFile valueForKey:@"CFBundleVersion"]];
 				[bundleIdentifierField setStringValue:[bundlePlistFile valueForKey:@"CFBundleIdentifier"]];
 				[bundleNameField setStringValue:[bundlePlistFile valueForKey:@"CFBundleDisplayName"]];
+                
+                [self populateFieldsFromHistoryForBundleID:[bundlePlistFile valueForKey:@"CFBundleIdentifier"]];
 			}
 			
 			//set mobile provision file
@@ -100,6 +113,38 @@
 	}
 	
 	[generateFilesButton setEnabled:YES];
+}
+
+- (void)populateFieldsFromHistoryForBundleID:(NSString *)bundleID {
+    NSString *applicationSupportPath = [[NSFileManager defaultManager] applicationSupportDirectory];
+    NSString *historyPath = [applicationSupportPath stringByAppendingPathComponent:@"history.plist"];
+    
+    NSDictionary *historyDictionary = [NSDictionary dictionaryWithContentsOfFile:historyPath];
+    
+    if (historyDictionary) {
+        NSDictionary *historyItem = [historyDictionary valueForKey:bundleID];
+        
+        if (historyItem) {
+            [webserverDirectoryField setStringValue:[historyItem valueForKey:@"webserverDirectory"]];
+        } else {
+            NSLog(@"No History Item Found for Bundle ID: %@", bundleID);
+        }
+    }
+}
+
+- (void)storeFieldsInHistoryForBundleID:(NSString *)bundleID {    
+    NSString *applicationSupportPath = [[NSFileManager defaultManager] applicationSupportDirectory];
+    NSString *historyPath = [applicationSupportPath stringByAppendingPathComponent:@"history.plist"];
+    
+    NSMutableDictionary *historyDictionary = [NSMutableDictionary dictionaryWithContentsOfFile:historyPath];
+    if (!historyDictionary) {
+        historyDictionary = [NSMutableDictionary dictionary];
+    }
+    
+    NSDictionary *webserverDirectoryDictionary = [NSDictionary dictionaryWithObjectsAndKeys:[webserverDirectoryField stringValue], @"webserverDirectory", nil];
+    [historyDictionary setValue:webserverDirectoryDictionary forKey:bundleID];
+    
+    [historyDictionary writeToFile:historyPath atomically:YES];
 }
 
 - (IBAction)generateFiles:(id)sender {
@@ -112,16 +157,26 @@
 	NSDictionary *outerManifestDictionary = [NSDictionary dictionaryWithObjectsAndKeys:[NSArray arrayWithObject:innerManifestDictionary], @"items", nil];
 	NSLog(@"Manifest Created");
 	
-	//create html file
-	NSString *templatePath = [[NSBundle mainBundle] pathForResource:@"index_template" ofType:@"html"];
+	//create html file    
+    NSString *applicationSupportPath = [[NSFileManager defaultManager] applicationSupportDirectory];
+    NSString *templatePath = [applicationSupportPath stringByAppendingPathComponent:@"index_template.html"];
 	NSString *htmlTemplateString = [NSString stringWithContentsOfFile:templatePath encoding:NSUTF8StringEncoding error:nil];
-	htmlTemplateString = [htmlTemplateString stringByReplacingOccurrencesOfString:@"[BETA_NAME]" withString:[NSString stringWithFormat:@"%@ %@",
-																											 [bundleNameField stringValue],
-																											 [bundleVersionField stringValue]]];
-	htmlTemplateString = [htmlTemplateString stringByReplacingOccurrencesOfString:@"[BETA_PLIST]" withString:[NSString stringWithFormat:@"%@/%@",
-																											  [webserverDirectoryField stringValue],
-																											  @"manifest.plist"]];
+	htmlTemplateString = [htmlTemplateString stringByReplacingOccurrencesOfString:@"[BETA_NAME]" withString:[bundleNameField stringValue]];
+    htmlTemplateString = [htmlTemplateString stringByReplacingOccurrencesOfString:@"[BETA_VERSION]" withString:[bundleVersionField stringValue]];
+	htmlTemplateString = [htmlTemplateString stringByReplacingOccurrencesOfString:@"[BETA_PLIST]" withString:[NSString stringWithFormat:@"%@/%@", [webserverDirectoryField stringValue], @"manifest.plist"]];
 	
+    //add formatted date
+    NSDateFormatter *shortDateFormatter = [[NSDateFormatter alloc] init];
+    [shortDateFormatter setTimeStyle:NSDateFormatterNoStyle];
+    [shortDateFormatter setDateStyle:NSDateFormatterMediumStyle];
+    NSString *formattedDateString = [shortDateFormatter stringFromDate:[NSDate date]];
+    [shortDateFormatter release];
+    htmlTemplateString = [htmlTemplateString stringByReplacingOccurrencesOfString:@"[BETA_DATE]" withString:formattedDateString];
+    
+    //store history
+    if ([webserverDirectoryField stringValue])
+        [self storeFieldsInHistoryForBundleID:[bundleIdentifierField stringValue]];
+    
 	//ask for save location	
 	NSOpenPanel *directoryPanel = [NSOpenPanel openPanel];
 	[directoryPanel setCanChooseFiles:NO];
@@ -135,9 +190,15 @@
 		NSURL *saveDirectoryURL = [directoryPanel directoryURL];
 		
 		//Write Files
+        NSError *fileWriteError;
 		[outerManifestDictionary writeToURL:[saveDirectoryURL URLByAppendingPathComponent:@"manifest.plist"] atomically:YES];
-		[htmlTemplateString writeToURL:[saveDirectoryURL URLByAppendingPathComponent:@"index.html"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+//		[htmlTemplateString writeToURL:[saveDirectoryURL URLByAppendingPathComponent:@"index.html"] atomically:YES encoding:NSUTF8StringEncoding error:nil];
+		BOOL wroteHTMLFileSuccessfully = [htmlTemplateString writeToURL:[saveDirectoryURL URLByAppendingPathComponent:@"index.html"] atomically:YES encoding:NSUTF8StringEncoding error:&fileWriteError];
 		
+        if (!wroteHTMLFileSuccessfully) {
+            NSLog(@"Error Writing HTML File: %@ to %@", fileWriteError, saveDirectoryURL);
+        }
+        
 		//Copy IPA
 		NSError *fileCopyError;
 		NSFileManager *fileManager = [NSFileManager defaultManager];
@@ -146,6 +207,11 @@
 		BOOL copiedIPAFile = [fileManager copyItemAtURL:ipaSourceURL toURL:ipaDestinationURL error:&fileCopyError];
 		if (!copiedIPAFile) {
 			NSLog(@"Error Copying IPA File: %@", fileCopyError);
+            NSAlert *theAlert = [NSAlert alertWithError:fileCopyError];
+            NSInteger button = [theAlert runModal];
+            if (button != NSAlertFirstButtonReturn) {
+                //user hit the rightmost button
+            }
 		}
 		
 		//Copy README

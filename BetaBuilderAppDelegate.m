@@ -8,7 +8,7 @@
 
 /* 
  iOS BetaBuilder - a tool for simpler iOS betas
- Version 1.0, August 2010
+ Version 1.5, January 2011
  
  Condition of use and distribution:
  
@@ -32,6 +32,8 @@
 #import "BetaBuilderAppDelegate.h"
 #import "BuilderController.h"
 
+#import "NSFileManager+DirectoryLocations.h"
+
 @implementation BetaBuilderAppDelegate
 
 @synthesize window;
@@ -47,6 +49,23 @@
 	if (recentURL && [recentURL length] > 0) {
 		[builderController.webserverDirectoryField setStringValue:recentURL];
 	}
+
+    //Copy HTML Template to App Support
+	NSString *applicationSupportPath = [[NSFileManager defaultManager] applicationSupportDirectory];
+    NSString *htmlTemplatePath = [applicationSupportPath stringByAppendingPathComponent:@"index_template.html"];
+    
+	NSString *defaultTemplatePath = [[NSBundle mainBundle] pathForResource:@"index_template" ofType:@"html"];
+	NSFileManager *fileManager = [NSFileManager defaultManager];
+	
+	if (![fileManager fileExistsAtPath:htmlTemplatePath]) {
+		NSLog(@"Copying Index Template");
+		
+		if (defaultTemplatePath) {
+			[fileManager copyItemAtPath:defaultTemplatePath toPath:htmlTemplatePath error:nil];
+		}
+	} else {
+        NSLog(@"Index Template Already Exists - Not Copying From Bundle");
+    }
 }
 
 - (IBAction)showDeploymentHelpPanel:(id)sender {
@@ -61,6 +80,10 @@
 	[self.builderController setupFromIPAFile:filename];
 	
 	return YES;
+}
+
+- (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender {
+    return YES;
 }
 
 @end

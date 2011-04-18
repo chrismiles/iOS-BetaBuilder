@@ -8,7 +8,7 @@
 
 /* 
  iOS BetaBuilder - a tool for simpler iOS betas
- Version 1.0, August 2010
+ Version 1.5, January 2011
  
  Condition of use and distribution:
  
@@ -58,5 +58,8 @@
 - (IBAction)generateFiles:(id)sender;
 
 - (void)setupFromIPAFile:(NSString *)ipaFilename;
+
+- (void)populateFieldsFromHistoryForBundleID:(NSString *)bundleID;
+- (void)storeFieldsInHistoryForBundleID:(NSString *)bundleID;
 
 @end
